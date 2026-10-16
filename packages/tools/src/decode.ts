@@ -11,7 +11,8 @@ import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   GameFiles, decodeLfg, lfgToRgba, parseScenario, tokenizeText, disassembleBlock, unpack, parseFontTable,
-  type FontTable, type Scenario, type TextToken,
+  decodeVd, decodeLfd, decodeKcode, decodeKcd,
+  type FontTable, type Scenario, type TextToken, type Vd, type LfdFrames,
 } from '@shizuku/engine';
 import { encodePng } from './png.ts';
 import { OP_NAMES } from './ops.ts';
@@ -72,6 +73,17 @@ for (const f of game.files()) {
     } else if (['FM', 'MD', 'VD', 'LFD', 'SDT'].includes(ext)) {
       write(`unpacked/${f.path}${ext === 'FM' ? '.M' : '.bin'}`, unpack(f.read()));
       count('empaquetados');
+      if (ext === 'VD') {
+        write(`sounds/${f.path}.wav`, wav(decodeVd(f.read())));
+        count('sonidos');
+      } else if (ext === 'LFD') {
+        writeLfd(f.path, decodeLfd(f.read()));
+      } else if (ext === 'SDT') {
+        const glyphs = decodeKcode(f.read());
+        write(`images/${f.path}.png`, glyphSheet(glyphs, 16, 18));
+      }
+    } else if (f.path === 'KNJ_ALL.KCD') {
+      write(`images/${f.path}.png`, glyphSheet(decodeKcd(f.read()), 24, 64));
     }
   } catch (e) {
     failures.push(`${f.path}: ${(e as Error).message}`);
@@ -82,6 +94,61 @@ console.log(`Listo en ${args.out}:`, counts);
 if (failures.length) {
   console.error(`${failures.length} errores:\n  ${failures.join('\n  ')}`);
   process.exitCode = 1;
+}
+
+/** 16-bit mono WAV; the rate (16537.5 Hz) is rounded to 16538 for the header. */
+function wav(vd: Vd): Uint8Array {
+  const n = vd.samples.length;
+  const b = Buffer.alloc(44 + n * 2);
+  const rate = Math.round(vd.sampleRate);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8);
+  b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(rate, 24); b.writeUInt32LE(rate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write('data', 36); b.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(vd.samples[i] * 32767), 44 + i * 2);
+  return b;
+}
+
+/** OP_S0: the drop sheet in the opening's blue; OP_L2: each head frame with OP_L0.LFG's palette. */
+function writeLfd(path: string, lfd: LfdFrames) {
+  if (lfd.kind === 'drop-sheet') {
+    const pal = new Uint8Array(48);
+    pal.set([0x33, 0x11, 0xbb], 3);
+    write(`images/${path}.png`, encodePng(lfd.width, lfd.height, indexedRgba(lfd.frames[0], pal)));
+    return;
+  }
+  const pal = game.has('OP_L0.LFG') ? decodeLfg(game.read('OP_L0.LFG')).palette : grey();
+  lfd.frames.forEach((fr, k) => write(`images/${path}.${k}.png`, encodePng(lfd.width, lfd.height, indexedRgba(fr, pal))));
+}
+
+function grey(): Uint8Array {
+  return Uint8Array.from({ length: 48 }, (_, i) => Math.floor(i / 3) * 17);
+}
+
+function indexedRgba(px: Uint8Array, pal: Uint8Array): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(px.length * 4);
+  for (let i = 0; i < px.length; i++) {
+    out.set(pal.subarray(px[i] * 3, px[i] * 3 + 3), i * 4);
+    out[i * 4 + 3] = 255;
+  }
+  return out;
+}
+
+/** Square 1-bit glyphs (size x size) laid out `cols` per row, white on black, 1px gaps. */
+function glyphSheet(glyphs: Uint8Array[], size: number, cols: number): Uint8Array {
+  const cell = size + 1;
+  const w = cols * cell;
+  const h = Math.ceil(glyphs.length / cols) * cell;
+  const rgba = new Uint8ClampedArray(w * h * 4).fill(64);
+  glyphs.forEach((g, i) => {
+    const x0 = (i % cols) * cell, y0 = Math.floor(i / cols) * cell;
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const o = ((y0 + y) * w + x0 + x) * 4;
+      rgba.fill(g[y * size + x] ? 255 : 0, o, o + 3);
+    }
+  });
+  for (let i = 3; i < rgba.length; i += 4) rgba[i] = 255;
+  return encodePng(w, h, rgba);
 }
 
 function textOf(tokens: TextToken[]): string {

@@ -4,3 +4,8 @@ export * from './game.ts';
 export * from './lfg.ts';
 export * from './scn.ts';
 export * from './font.ts';
+export * from './vd.ts';
+export * from './lfd.ts';
+export * from './kcode.ts';
+export * from './kcd.ts';
+export * from './efc.ts';
