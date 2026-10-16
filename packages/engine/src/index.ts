@@ -6,3 +6,8 @@ export * from './scn.ts';
 export * from './font.ts';
 export * from './scene.ts';
 export * from './interpreter.ts';
+export * from './vd.ts';
+export * from './lfd.ts';
+export * from './kcode.ts';
+export * from './kcd.ts';
+export * from './efc.ts';

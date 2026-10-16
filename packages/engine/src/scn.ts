@@ -82,10 +82,10 @@ export function tokenizeText(bytes: Uint8Array): TextToken[] {
         break;
       case 'M':
       case 'P': {
-        // M: f n## w ## s   P: l## #### f w s
+        // M: f n## w ## s   P: l## c## d## #### f w s (MAX_ADV.EXE's P handler)
         const sub = String.fromCharCode(bytes[i + 1]);
         let len = 2;
-        if (sub === 'n' || sub === 'l') len = 4;
+        if (sub === 'n' || sub === 'l' || (op === 'P' && (sub === 'c' || sub === 'd'))) len = 4;
         else if (op === 'M' && sub >= '0' && sub <= '2') len = 3;
         else if (op === 'P' && sub >= '0' && sub <= '9') len = 5;
         tokens.push({ t: 'cmd', op, raw: ascii(i, i + len) });
