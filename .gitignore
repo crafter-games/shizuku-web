@@ -19,3 +19,4 @@ fixtures/private/
 *.rar
 *.lzh
 *.7z
+.claude/worktrees/

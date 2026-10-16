@@ -138,3 +138,76 @@ export function disassembleBlock(scn: Scenario, block: number): Op[] {
   }
   return ops;
 }
+
+/** A run of text shown in one go, ending in a wait. Translations are per segment. */
+export interface Segment {
+  kind: 'text';
+  /** Position among the message's segments: the translation key. */
+  index: number;
+  tokens: TextToken[];
+  /** Starts on a new line (the original breaks the line after the previous wait). */
+  newline: boolean;
+  /** key: wait, keep the page; page: wait, then clear the page; none: no wait. */
+  wait: 'key' | 'page' | 'none';
+}
+
+/** An inline command, to run before the segment numbered `before`. */
+export interface SegmentCommand {
+  kind: 'cmd';
+  op: string;
+  raw: string;
+  before: number;
+}
+
+/**
+ * Splits a message into text segments at the player's waits (K, p), with the
+ * inline commands in between. A command in the middle of a line ends the
+ * segment before it, so the text up to it shows first. Line breaks ('r') at
+ * the start of a segment become its `newline`; others are the original's
+ * hard wraps and stay as tokens for the Japanese layout.
+ */
+export function segmentMessage(tokens: TextToken[]): (Segment | SegmentCommand)[] {
+  const out: (Segment | SegmentCommand)[] = [];
+  let index = 0;
+  let current: TextToken[] = [];
+  let newline = false;
+  const hasText = () => current.some((t) => t.t === 'char');
+  const flush = (wait: Segment['wait']) => {
+    if (hasText() || wait !== 'none') out.push({ kind: 'text', index: index++, tokens: current, newline, wait });
+    current = [];
+    newline = false;
+  };
+  for (const t of tokens) {
+    switch (t.t) {
+      case 'char':
+        current.push(t);
+        break;
+      case 'newline':
+        if (hasText()) current.push(t);
+        else newline = true;
+        break;
+      case 'key':
+        flush('key');
+        break;
+      case 'page':
+        flush('page');
+        break;
+      case 'end':
+        flush('none');
+        return out;
+      case 'cmd':
+        if (hasText()) flush('none');
+        out.push({ kind: 'cmd', op: t.op, raw: t.raw, before: index });
+        break;
+    }
+  }
+  flush('none');
+  return out;
+}
+
+/** FNV-1a of a message's bytes: tells whether a translation still matches the player's disks. */
+export function messageHash(bytes: Uint8Array): string {
+  let h = 0x811c9dc5;
+  for (const b of bytes) h = Math.imul(h ^ b, 0x01000193);
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
