@@ -16,6 +16,14 @@ pnpm test
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the design and the file formats.
 
+## Deployment
+
+shizuku.crafter.games is built by the Dockerfile in the private
+`crafter-games/shizuku-es` repo (Dokploy, from its `main`): it clones this
+repo, adds the translation and serves `packages/web/dist` with
+`deploy/nginx.conf`. Pushing here does not redeploy by itself; redeploy the
+Dokploy app (or push to shizuku-es).
+
 ## Credits
 
 - File formats and scenario bytecode: XLVNS by Go Watanabe (BSD), ported to TypeScript.
