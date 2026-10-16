@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Game data never goes into git (see scripts/check-no-game-data.sh).
+# Anything decoded from the player's disks lands in out/.
+out/
+fixtures/private/
+*.hdm
+*.HDM
+*.fdi
+*.FDI
+*.d88
+*.D88
+*.hdi
+*.HDI
+*.nfd
+*.rar
+*.lzh
+*.7z

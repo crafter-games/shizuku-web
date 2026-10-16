@@ -1,0 +1,15 @@
+{
+  "name": "@shizuku/tools",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "decode": "node src/decode.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "echo no tests"
+  },
+  "dependencies": {
+    "@shizuku/engine": "workspace:*"
+  }
+}
