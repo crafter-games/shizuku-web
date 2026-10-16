@@ -1,6 +1,6 @@
 // Music and sound effects. Music is the game's PMD data (MUS/SZ_FMnn.FM)
 // played by the WASM PMD driver in @shizuku/pmd.
-import { unpack, type GameFiles, type MusicCommand, type SoundCommand } from '@shizuku/engine';
+import { decodeVd, parseVdPlay, unpack, type GameFiles, type MusicCommand, type SoundCommand } from '@shizuku/engine';
 import { PmdPlayer } from '@shizuku/pmd/player';
 import workletUrl from '@shizuku/pmd/pmd-worklet.js?url';
 
@@ -43,6 +43,7 @@ export class Audio {
   setVolume(music: number, sound: number) {
     this.musicVolume = music;
     this.soundVolume = sound;
+    if (this.effectGain) this.effectGain.gain.value = sound;
     void this.player?.then((p) => (p.pmd.volume = music));
   }
 
@@ -84,14 +85,71 @@ export class Audio {
     }
   }
 
-  sound(_cmd: SoundCommand): void | Promise<void> {
-    // .VD sound effects: waiting on the format.
+  private loaded: AudioBuffer | undefined;
+  private loadedNo: number | null = null;
+  private effect: { source: AudioBufferSourceNode; done: Promise<void>; endless: boolean } | undefined;
+  private effectGain: GainNode | undefined;
+
+  /** PCM effects (SZ_VDnn.VD): Plnn loads, Paabb plays aa times (00 = loop) with a gap, Pw waits, Ps stops. */
+  sound(cmd: SoundCommand): void | Promise<void> {
+    const ctx = this.ctx;
+    switch (cmd.t) {
+      case 'load': {
+        this.loadedNo = cmd.no;
+        this.loaded = undefined;
+        if (!ctx) return;
+        const vd = decodeVd(this.files.read(`SZ_VD${String(cmd.no).padStart(2, '0')}.VD`));
+        const buffer = ctx.createBuffer(1, vd.samples.length, vd.sampleRate);
+        buffer.copyToChannel(vd.samples as Float32Array<ArrayBuffer>, 0);
+        this.loaded = buffer;
+        return;
+      }
+      case 'play': {
+        if (!ctx || !this.loaded) return;
+        if (!/^\d{4}$/.test(cmd.arg)) return; // Pc/Pd: in the EXE, unused by the scripts
+        this.stopEffect();
+        const { loops, gapSamples } = parseVdPlay(`P${cmd.arg}`);
+        // One pass is the sample plus its gap; loops repeat that pass.
+        const pass = ctx.createBuffer(1, this.loaded.length + gapSamples, this.loaded.sampleRate);
+        pass.copyToChannel(this.loaded.getChannelData(0), 0);
+        const source = ctx.createBufferSource();
+        source.buffer = pass;
+        this.effectGain ??= ctx.createGain();
+        this.effectGain.gain.value = this.soundVolume;
+        this.effectGain.connect(ctx.destination);
+        source.connect(this.effectGain);
+        source.loop = loops !== 1;
+        if (loops > 1) source.stop(ctx.currentTime + (pass.duration * loops) - gapSamples / pass.sampleRate);
+        const done = new Promise<void>((r) => (source.onended = () => r()));
+        source.start();
+        this.effect = { source, done, endless: loops === 0 };
+        return;
+      }
+      case 'wait':
+        // Looping effects never end on their own: don't wait for them.
+        return this.effect && !this.effect.endless ? this.effect.done : undefined;
+      case 'stop':
+        this.stopEffect();
+        return;
+      case 'fade':
+        return;
+    }
+  }
+
+  private stopEffect() {
+    try {
+      this.effect?.source.stop();
+    } catch {
+      // already stopped
+    }
+    this.effect = undefined;
   }
 
   stopAll() {
     this.current = null;
     this.next = null;
     this.fading = false;
+    this.stopEffect();
     void this.player?.then((p) => p.stop());
   }
 }

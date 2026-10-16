@@ -53,6 +53,23 @@ export type SoundCommand =
   | { t: 'stop' }
   | { t: 'fade' };
 
+/** One vsync of the PC-98's 400-line mode, the unit of the scripts' waits. */
+export const VSYNC_MS = 1000 / 56.42;
+
+/**
+ * Palette operations (opcodes 5a-69 on the PC-98; see docs/DESIGN.md).
+ * `steps` fades take 16 steps of `vsyncs` each.
+ */
+export type PaletteOp =
+  | { t: 'normal' }
+  | { t: 'black' }
+  | { t: 'white' }
+  | { t: 'fade-to'; color: 'black' | 'white'; vsyncs: number }
+  | { t: 'fade-from'; color: 'black' | 'white'; vsyncs: number }
+  | { t: 'dim'; on: boolean }
+  | { t: 'grey'; amount: number }
+  | { t: 'fade-grey'; on: boolean };
+
 /** What the interpreter needs from the player (renderer, audio, input). */
 export interface Host {
   /** Called whenever a save would be allowed to resume from here. */
@@ -73,6 +90,8 @@ export interface Host {
   /** The teardrop animation (opcode 01 03). */
   teardrop(variant: number): Promise<void>;
   ending(no: number): Promise<void>;
+  wait(ms: number): Promise<void>;
+  palette(op: PaletteOp): Promise<void>;
 }
 
 const FLAG_SLOTS = 14;
@@ -261,7 +280,39 @@ export class Interpreter {
         if (this.flags[flagSlot(0x46)] === 1) this.flags[0] = 3;
         else this.flags[0] = this.flags[0] === 0 ? 2 : 1;
         break;
-      default: // 03, 06, 07, 28, 5a, 5c, 60-66, 6f, 73, 7c: no visible effect known yet
+      case 0x03:
+        await h.wait(a[0] * VSYNC_MS);
+        break;
+      case 0x5a: await h.palette({ t: 'normal' }); break;
+      case 0x5b: await h.palette({ t: 'black' }); break;
+      case 0x5c: await h.palette({ t: 'fade-to', color: 'black', vsyncs: a[0] - 1 }); break;
+      case 0x5d: await h.palette({ t: 'fade-from', color: 'black', vsyncs: a[0] - 1 }); break;
+      case 0x60: await h.palette({ t: 'white' }); break;
+      case 0x61: await h.palette({ t: 'fade-to', color: 'white', vsyncs: a[0] - 1 }); break;
+      case 0x62: await h.palette({ t: 'fade-from', color: 'white', vsyncs: a[0] - 1 }); break;
+      case 0x63: await h.palette({ t: 'dim', on: false }); break;
+      case 0x64: await h.palette({ t: 'dim', on: true }); break;
+      case 0x65: // from black into the dimmed palette
+        await h.palette({ t: 'dim', on: true });
+        await h.palette({ t: 'fade-from', color: 'black', vsyncs: 3 });
+        break;
+      case 0x66: await h.palette({ t: 'fade-to', color: 'black', vsyncs: 3 }); break;
+      case 0x67: await h.palette({ t: 'grey', amount: a[0] / 15 }); break;
+      case 0x68: await h.palette({ t: 'fade-grey', on: true }); break;
+      case 0x69: await h.palette({ t: 'fade-grey', on: false }); break;
+      case 0x6f:
+        await h.music({ t: 'fade' });
+        break;
+      case 0x70:
+        this.music = null;
+        await h.music({ t: 'stop' });
+        break;
+      case 0x73:
+        this.music = null;
+        await h.music({ t: 'fade' });
+        await h.music({ t: 'wait-fade' });
+        break;
+      default: // 06, 07, 28, 5e/5f (palette save/restore), 71/72 (FM/SSG effects, unused), 7c
         break;
     }
     return false;

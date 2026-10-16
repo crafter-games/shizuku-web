@@ -76,8 +76,32 @@ export class Stage {
     this.draw();
   }
 
+  /** A colour mixed over the whole palette: black or white fades, grey (scripts' palette ops). */
+  private tint = { rgb: 0, amount: 0 };
+
   private palette(frame: Frame) {
-    return this.dim ? dimPalette(frame.palette) : frame.palette;
+    const base = this.dim ? dimPalette(frame.palette) : frame.palette;
+    if (this.tint.amount === 0) return base;
+    const { rgb, amount } = this.tint;
+    return base.map((v) => v + (rgb - v) * amount);
+  }
+
+  /** Sets or fades the tint (0 = the picture's own colours, 1 = all `rgb`). */
+  async setTint(rgb: number, amount: number, ms = 0) {
+    const from = this.tint.rgb === rgb ? this.tint.amount : this.tint.amount > 0 ? this.tint.amount : 0;
+    if (this.tint.rgb !== rgb && this.tint.amount > 0 && amount > 0) {
+      // Switching tint colour mid-way (e.g. white to black): jump.
+      this.tint = { rgb, amount: from };
+    }
+    this.tint.rgb = rgb;
+    if (this.fast || ms <= 0) {
+      this.tint.amount = amount;
+      return this.draw();
+    }
+    await this.animate(ms, (p) => {
+      this.tint.amount = from + (amount - from) * p;
+      this.draw();
+    });
   }
 
   private draw(frame = this.frame, palette = this.palette(frame)) {
@@ -120,7 +144,12 @@ export class Stage {
 
   /** Transitions to `next` (a black frame for clears). */
   async transition(next: Frame, effect: Effect): Promise<void> {
-    const from = this.frame;
+    let from = this.frame;
+    if (this.tint.amount > 0) {
+      // Showing a picture sets its palette: a black (or white) screen is what we transition from.
+      from = this.tint.amount >= 1 ? solid(this.tint.rgb) : { pixels: from.pixels, palette: this.palette(from) };
+      this.tint = { rgb: 0, amount: 0 };
+    }
     this.frame = next;
     const duration = this.fast ? 0 : (DURATION[effect] ?? 800);
     if (duration === 0) return this.draw();
@@ -200,6 +229,10 @@ export class Stage {
     c.getContext('2d')!.drawImage(this.canvas, 0, 0, 160, 100);
     return c.toDataURL('image/jpeg', 0.7);
   }
+}
+
+function solid(rgb: number): Frame {
+  return rgb === 0 ? BLACK : { pixels: BLACK.pixels, palette: new Uint8Array(48).fill(rgb) };
 }
 
 function rgba(frame: Frame, palette: Uint8Array) {

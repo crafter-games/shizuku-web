@@ -3,6 +3,7 @@
 import {
   Interpreter, composeScene, emptyVisual, lfgLoader, type GameFiles, type Host, type MessageRef,
   type SavePoint, type TextSegment, type Visual, type Effect, type MusicCommand, type SoundCommand,
+  type PaletteOp, VSYNC_MS,
   tokenizeText,
 } from '@shizuku/engine';
 import { japanese, spanish } from './translation.ts';
@@ -248,6 +249,28 @@ export class Player implements Host {
     // The teardrop animation (OP_S0.LFD) is not decoded yet: a short fade stands in.
     await this.stage.clear('palette');
     await this.stage.transition(this.frame(this.interp.visual.bg.no ? this.interp.visual : emptyVisual()), 'palette');
+  }
+
+  wait(ms: number) {
+    if (this.state.mode === 'skip') return Promise.resolve();
+    return new Promise<void>((r) => setTimeout(r, ms));
+  }
+
+  async palette(op: PaletteOp) {
+    const fade = (vsyncs: number) => Math.min(2000, 16 * Math.max(1, vsyncs) * VSYNC_MS);
+    const s = this.stage;
+    switch (op.t) {
+      case 'normal': return s.setTint(0, 0);
+      case 'black': return s.setTint(0, 1);
+      case 'white': return s.setTint(255, 1);
+      case 'fade-to': return s.setTint(op.color === 'white' ? 255 : 0, 1, fade(op.vsyncs));
+      case 'fade-from': return s.setTint(op.color === 'white' ? 255 : 0, 0, fade(op.vsyncs));
+      case 'grey': return s.setTint(128, op.amount);
+      case 'fade-grey': return s.setTint(128, op.on ? 1 : 0, 16 * 2 * VSYNC_MS);
+      case 'dim':
+        // Text already dims the palette behind it (style of opcode 64); nothing extra.
+        return;
+    }
   }
 
   async ending(_no: number) {
