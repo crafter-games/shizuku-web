@@ -166,6 +166,10 @@ export function SettingsPanel({ settings, onChange, onClose }: { settings: Setti
           Suavizar los píxeles
         </label>
       </form>
+      <p class="credits">
+        Shizuku © 1996 Leaf. Motor y traducción: proyecto de fans, sin relación con Leaf/AQUAPLUS.{' '}
+        <a href="LICENSES.txt" target="_blank">Licencias de terceros</a>
+      </p>
     </Panel>
   );
 }

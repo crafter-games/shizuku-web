@@ -236,3 +236,6 @@ button.on { background: var(--fg); color: var(--bg); }
   .game-menu button { flex: none; }
   .title-menu { font-size: 5cqw; }
 }
+
+.credits { margin-top: 2rem; color: var(--muted); font-size: 0.85rem; max-width: 26rem; }
+.credits a { color: inherit; }
