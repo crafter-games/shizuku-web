@@ -17,6 +17,12 @@ importers:
 
   packages/engine: {}
 
+  packages/pmd:
+    devDependencies:
+      '@shizuku/engine':
+        specifier: workspace:*
+        version: link:../engine
+
   packages/tools:
     dependencies:
       '@shizuku/engine':

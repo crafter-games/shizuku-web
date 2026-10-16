@@ -20,3 +20,4 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the design and the file formats.
 
 - File formats and scenario bytecode: XLVNS by Go Watanabe (BSD), ported to TypeScript.
 - PC-98 specifics cross-checked against Her-Saki's English patch tools (used as documentation).
+- FM music: the PMD driver and YM2608 emulator of 98fmplayer by Takamichi Horikawa (BSD-2-Clause), built to WebAssembly in `packages/pmd` (see its LICENSE).

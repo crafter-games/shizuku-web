@@ -1,0 +1,23 @@
+{
+  "name": "@shizuku/pmd",
+  "version": "0.1.0",
+  "description": "PMD (Kajihara's Professional Music Driver) player for browsers and Node: 98fmplayer's driver and OPNA emulator built to WebAssembly.",
+  "license": "MIT AND BSD-2-Clause",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./player": "./src/player.ts",
+    "./pmd-worklet.js": "./src/pmd-worklet.js"
+  },
+  "scripts": {
+    "build:wasm": "native/build.sh",
+    "render": "node scripts/render.ts",
+    "compare": "node scripts/compare.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@shizuku/engine": "workspace:*"
+  }
+}
