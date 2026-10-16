@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "decode": "pnpm --filter @shizuku/tools decode"
+    "decode": "pnpm --filter @shizuku/tools decode",
+    "segments": "pnpm --filter @shizuku/tools segments"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

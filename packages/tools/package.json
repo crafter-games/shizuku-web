@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "decode": "node src/decode.ts",
+    "segments": "node src/segments.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "echo no tests"
   },
