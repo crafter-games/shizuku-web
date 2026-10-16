@@ -34,6 +34,9 @@ importers:
       '@shizuku/engine':
         specifier: workspace:*
         version: link:../engine
+      '@shizuku/pmd':
+        specifier: workspace:*
+        version: link:../pmd
       preact:
         specifier: ^10.27.0
         version: 10.29.8

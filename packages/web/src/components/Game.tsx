@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { GameFiles, SavePoint } from '@shizuku/engine';
 import { Stage } from '../stage.ts';
-import { Audio } from '../audio.ts';
+import type { Audio } from '../audio.ts';
 import { Player, type UiState } from '../player.ts';
 import { AUTO_SLOT, QUICK_SLOT, getItem, saveProgress, setItem, type Progress, type SaveGame, type Settings } from '../storage.ts';
 import { Backlog, SaveLoad, SettingsPanel } from './Panels.tsx';
 
 type PanelName = 'save' | 'load' | 'backlog' | 'settings' | null;
 
-export function Game({ game, start, settings, progress, onSettings, onExit }: {
+export function Game({ game, audio, start, settings, progress, onSettings, onExit }: {
   game: GameFiles;
+  audio: Audio;
   start: SavePoint;
   settings: Settings;
   progress: Progress;
@@ -39,7 +40,7 @@ export function Game({ game, start, settings, progress, onSettings, onExit }: {
 
   useEffect(() => {
     const stage = new Stage(canvas.current!);
-    const p = new Player(game, stage, new Audio(), () => stageEl.current!, settings, progress);
+    const p = new Player(game, stage, audio, () => stageEl.current!, settings, progress);
     p.onChoice = (point) => void setItem('saves', AUTO_SLOT, { ...snapshot()!, point, date: Date.now() });
     p.onEnd = () => {
       progress.persistentFlags = [...p.interp.flags];
@@ -60,6 +61,7 @@ export function Game({ game, start, settings, progress, onSettings, onExit }: {
 
   useEffect(() => {
     if (player.current) player.current.settings = settings;
+    audio.setVolume(settings.musicVolume, settings.soundVolume);
   }, [settings]);
 
   const load = (s: SaveGame) => {

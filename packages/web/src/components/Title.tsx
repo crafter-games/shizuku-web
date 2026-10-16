@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Interpreter, type GameFiles, type SavePoint } from '@shizuku/engine';
 import { Stage } from '../stage.ts';
+import type { Audio } from '../audio.ts';
 import { layered } from '../game-files.ts';
 import { listSaves, type Progress, type SaveGame, type Settings } from '../storage.ts';
 import { SaveLoad, SettingsPanel } from './Panels.tsx';
 import { Gallery } from './Gallery.tsx';
 
-export function Title({ game, progress, settings, onSettings, onStart }: {
+/** SZ_FM15 plays over the PC-98's opening and title screen. */
+const TITLE_MUSIC = 15;
+
+export function Title({ game, audio, progress, settings, onSettings, onStart }: {
   game: GameFiles;
+  audio: Audio;
   progress: Progress;
   settings: Settings;
   onSettings: (s: Settings) => void;
@@ -20,6 +25,7 @@ export function Title({ game, progress, settings, onSettings, onStart }: {
   useEffect(() => {
     const stage = new Stage(canvas.current!);
     void stage.transition(layered(game, ['TITLE0.LFG', 'TITLE.LFG']), 'palette');
+    audio.play(TITLE_MUSIC, 1); // the opening theme, once, as on the PC-98
     void listSaves().then((saves) => {
       const newest = [...saves.values()].sort((a, b) => b.date - a.date)[0];
       setLatest(newest);

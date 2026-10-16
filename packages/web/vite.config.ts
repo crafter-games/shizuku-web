@@ -65,6 +65,8 @@ function translation(): Plugin {
 
 export default defineConfig({
   base: './',
-  plugins: [preact(), devDisks(), translation()],
-  build: { target: 'es2022' },
+  // AudioWorklet modules run outside the page: keep Preact's hot reload out of them.
+  plugins: [preact({ exclude: [/worklet/] }), devDisks(), translation()],
+  // The audio worklet must stay a real file: Safari will not load it from a data: URL.
+  build: { target: 'es2022', assetsInlineLimit: (file) => (file.includes('worklet') ? false : undefined) },
 });

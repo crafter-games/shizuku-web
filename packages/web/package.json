@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@shizuku/engine": "workspace:*",
-    "preact": "^10.27.0"
+    "preact": "^10.27.0",
+    "@shizuku/pmd": "workspace:*"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.2",
