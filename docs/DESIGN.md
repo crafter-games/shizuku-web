@@ -19,7 +19,7 @@ Settled with the user on 2026-10-16.
 
 - 640x400 16-colour art, nearest-neighbour scaling, optional 4:3 aspect correction.
 - Landscape: text over the picture, as in the original. Portrait: picture on top, text panel below.
-- FM music (PMD data played by a WASM build of pmdmini or 98fmplayer) and `.VD` PCM effects. No MIDI.
+- FM music (PMD data played by a WASM build of 98fmplayer, `packages/pmd`) and `.VD` PCM effects. No MIDI.
 - Saves in IndexedDB: unlimited slots, quick save, auto-save at choices, export/import. Backlog, skip read text, auto-advance, CG gallery.
 - Effects (fades, flashes, ripples, shakes, the opening) must look right next to the emulator, checked by screenshot tests at key frames.
 
@@ -53,6 +53,6 @@ Five PC-98 2HD floppies, FAT12 (1024-byte sectors, 8 per track, 77 cylinders, 2 
 
 **Font** (`KNJ_ALL.KCD`). u24 glyph count (1849), u24 offsets, then a per-glyph compressed bitmap in a scheme not yet decoded (not LZSS). The engine does not need it: Spanish is drawn with web fonts. The dev tools show the Japanese through the index → character table from Her-Saki's tools, kept in the private translation repo.
 
-**Music.** `SZ_FM*.FM` unpack to compiled PMD (`.M`) data for Kajihara's PMD driver. `SZ_GS*.MD` are for the M.M.D. MIDI driver (unused).
+**Music.** `SZ_FM*.FM` unpack to compiled PMD (`.M`) data for Kajihara's PMD driver. `SZ_GS*.MD` are for the M.M.D. MIDI driver (unused). After the sound-board menu the game plays `SZ_FM00` (a 5 s jingle; `SZ_FM14` is the same file), then `SZ_FM15` over the opening and the title screen: 78 s, played once, so the title is silent after it. Songs 05, 08, 11, 13, 16, 19, 20 and 21 use the OPNA rhythm section, whose samples are in a Yamaha ROM we do not ship; `@shizuku/pmd` synthesizes stand-ins, or takes a ROM dump from the player.
 
 **Still unknown.** `.VD` sample format (PCM for the 86 board's PCM), `.LFD` animation layout (`OP_S0`, `OP_L2`), `KCODE.SDT`, `SZEF.EFC`, and the opcodes XLVNS marks as unknown (`03`, `5a`, `5c`, `60`–`66`, `6f`, `73`).
