@@ -6,10 +6,15 @@ import { Audio } from './audio.ts';
 import { Importer } from './components/Importer.tsx';
 import { Title } from './components/Title.tsx';
 import { Game } from './components/Game.tsx';
-import { loadProgress, loadSettings, type Progress, type Settings } from './storage.ts';
+import { Opening } from './components/Opening.tsx';
+import { getItem, loadProgress, loadSettings, setItem, type Progress, type Settings } from './storage.ts';
 import './style.css';
 
-type Screen = { t: 'loading' } | { t: 'import' } | { t: 'title' } | { t: 'game'; start: SavePoint };
+type Screen =
+  | { t: 'loading' } | { t: 'import' } | { t: 'opening' } | { t: 'title'; instant?: boolean } | { t: 'game'; start: SavePoint };
+
+/** The opening plays by itself only the first time; the title menu replays it. */
+const OPENING_SEEN = 'opening-seen';
 
 function App() {
   const [screen, setScreen] = useState<Screen>({ t: 'loading' });
@@ -24,12 +29,20 @@ function App() {
     const g = await openGame();
     setGame(g);
     if (g) setAudio((a) => a ?? new Audio(g));
-    setScreen(g ? { t: 'title' } : { t: 'import' });
+    if (!g) return setScreen({ t: 'import' });
+    setScreen((await getItem<boolean>('meta', OPENING_SEEN)) ? { t: 'title' } : { t: 'opening' });
   };
   useEffect(() => void boot(), []);
 
   if (screen.t === 'loading' || !settings || !progress) return <div class="loading">雫</div>;
   if (screen.t === 'import' || !game || !audio) return <Importer onReady={boot} />;
+  if (screen.t === 'opening') {
+    const done = (skipped: boolean) => {
+      void setItem('meta', OPENING_SEEN, true);
+      setScreen({ t: 'title', instant: !skipped });
+    };
+    return <Opening game={game} audio={audio} settings={settings} onDone={done} />;
+  }
   if (screen.t === 'title') {
     return (
       <Title
@@ -37,8 +50,10 @@ function App() {
         audio={audio}
         progress={progress}
         settings={settings}
+        instant={screen.instant}
         onSettings={setSettings}
         onStart={(start) => setScreen({ t: 'game', start })}
+        onOpening={() => setScreen({ t: 'opening' })}
       />
     );
   }

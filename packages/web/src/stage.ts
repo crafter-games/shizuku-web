@@ -1,60 +1,34 @@
-// Draws composed 640x400 frames to a canvas and runs the screen transitions,
-// the dimmed palette behind text, shakes, flashes and the ripple effect.
-import { HEIGHT, WIDTH, dimPalette, type Effect, type Frame } from '@shizuku/engine';
+// Draws composed 640x400 frames to a canvas and runs the PC-98's screen
+// transitions (@shizuku/engine effects.ts), the dimmed palette behind text,
+// shakes, flashes, the ripple effect and vsync-timed animations (the opening).
+import {
+  HEIGHT, WIDTH, VSYNC_MS, Screen, compose, dimPalette, gameRandom, paint, transition,
+  type Effect, type Frame, type TransitionData,
+} from '@shizuku/engine';
 
 const BLACK: Frame = { pixels: new Uint8Array(WIDTH * HEIGHT), palette: new Uint8Array(48) };
 
 /** Same query as the portrait layout in style.css. */
 export const PORTRAIT = '(orientation: portrait) and (max-width: 760px)';
 
-const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-
-/** Per-pixel reveal order in [0, 1) for each effect: pixel shows the new frame once progress passes it. */
-function orderMap(effect: Effect): Float32Array | undefined {
-  const map = new Float32Array(WIDTH * HEIGHT);
-  const tile = (x: number, y: number) => BAYER4[(y & 3) * 4 + (x & 3)] / 16;
-  for (let y = 0; y < HEIGHT; y++) {
-    for (let x = 0; x < WIDTH; x++) {
-      let t: number;
-      switch (effect) {
-        case 'mask': t = tile(x, y); break;
-        case 'wipe-down': t = y / HEIGHT; break;
-        case 'wipe-right': case 'slide-right': t = x / WIDTH; break;
-        case 'mask-wipe-right': t = (x / WIDTH) * 0.8 + tile(x, y) * 0.2; break;
-        case 'diamonds': t = (Math.abs((x % 32) - 16) + Math.abs((y % 32) - 16)) / 32; break;
-        case 'diamond-wipe': t = (x / WIDTH) * 0.7 + ((Math.abs((x % 32) - 16) + Math.abs((y % 32) - 16)) / 32) * 0.3; break;
-        case 'slant-tiles': t = (((x >> 4) + (y >> 4)) % 8) / 8 * 0.5 + (x / WIDTH) * 0.5; break;
-        case 'vertical-close': t = Math.min(y, HEIGHT - 1 - y) / (HEIGHT / 2); break;
-        case 'spiral': {
-          const a = (Math.atan2(y - HEIGHT / 2, x - WIDTH / 2) / Math.PI + 1) / 2;
-          const r = Math.hypot(x - WIDTH / 2, y - HEIGHT / 2) / Math.hypot(WIDTH / 2, HEIGHT / 2);
-          t = (a + r * 3) % 1;
-          break;
-        }
-        default: return undefined;
-      }
-      map[y * WIDTH + x] = Math.min(t, 0.999);
-    }
-  }
-  return map;
-}
-
-const maps = new Map<Effect, Float32Array | undefined>();
-const mapFor = (e: Effect) => {
-  if (!maps.has(e)) maps.set(e, orderMap(e));
-  return maps.get(e);
-};
-
-const DURATION: Partial<Record<Effect, number>> = { palette: 700, mask: 450, cut: 0 };
+/** The PC-98 dims and undims the palette behind text in 5 steps of 2 vsyncs. */
+const DIM_STEPS = 5;
 
 export class Stage {
   readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly image: ImageData;
+  private readonly out: Uint32Array;
+  /** The graphics and the text-layer mask, as transitions draw them. */
+  private readonly layers = { screen: new Uint32Array(WIDTH * HEIGHT), cover: new Uint8Array(WIDTH * HEIGHT) };
   private frame: Frame = BLACK;
-  private dim = false;
+  /** Dim step, 0 (normal) to DIM_STEPS (10/15). */
+  private dim = 0;
+  private dimTarget = 0;
   private rippleOn = false;
   private rippleStart = 0;
+  /** Glyphs and tables the transitions need from the disks. */
+  data: TransitionData | undefined;
   /** Skip mode: transitions finish at once. */
   fast = false;
 
@@ -64,23 +38,39 @@ export class Stage {
     canvas.height = HEIGHT;
     this.ctx = canvas.getContext('2d')!;
     this.image = this.ctx.createImageData(WIDTH, HEIGHT);
+    this.out = new Uint32Array(this.image.data.buffer);
     this.draw();
   }
 
-  /** Dims the palette behind text, as the PC-98 does. */
-  setDim(on: boolean) {
+  /** Dims the palette behind text, as the PC-98 does; resolves when the fade is done. */
+  async setDim(on: boolean): Promise<void> {
     // Upright phones show the text below the picture: nothing to dim for.
     if (on && matchMedia(PORTRAIT).matches) on = false;
-    if (this.dim === on) return;
-    this.dim = on;
-    this.draw();
+    const target = on ? DIM_STEPS : 0;
+    if (this.dimTarget === target) return;
+    this.dimTarget = target;
+    if (this.fast) {
+      this.dim = target;
+      return this.draw();
+    }
+    await this.ticks(DIM_STEPS, 2, () => {
+      if (this.dimTarget !== target) return false;
+      this.dim += Math.sign(target - this.dim);
+      this.draw();
+      return this.dim !== target;
+    });
+  }
+
+  /** Lifts the dim at once (transitions that cut, or the PC-98's palette reset). */
+  private undimNow() {
+    this.dim = this.dimTarget = 0;
   }
 
   /** A colour mixed over the whole palette: black or white fades, grey (scripts' palette ops). */
   private tint = { rgb: 0, amount: 0 };
 
-  private palette(frame: Frame) {
-    const base = this.dim ? dimPalette(frame.palette) : frame.palette;
+  private palette(frame: Frame, dim = this.dim) {
+    const base = dim ? dimPalette(frame.palette, dim) : frame.palette;
     if (this.tint.amount === 0) return base;
     const { rgb, amount } = this.tint;
     return base.map((v) => v + (rgb - v) * amount);
@@ -104,17 +94,16 @@ export class Stage {
     });
   }
 
+  /** Shows `frame` with the current dim and tint. */
   private draw(frame = this.frame, palette = this.palette(frame)) {
-    const d = this.image.data;
-    const px = frame.pixels;
-    for (let i = 0; i < px.length; i++) {
-      const c = px[i] * 3;
-      d[i * 4] = palette[c];
-      d[i * 4 + 1] = palette[c + 1];
-      d[i * 4 + 2] = palette[c + 2];
-      d[i * 4 + 3] = 255;
-    }
-    if (this.rippleOn) this.applyRipple(d);
+    paint(frame, palette, this.layers.screen);
+    this.layers.cover.fill(0);
+    this.present();
+  }
+
+  private present() {
+    compose(this.layers, this.out);
+    if (this.rippleOn) this.applyRipple(this.image.data);
     this.ctx.putImageData(this.image, 0, 0);
   }
 
@@ -142,45 +131,136 @@ export class Stage {
     if (on) requestAnimationFrame(tick);
   }
 
-  /** Transitions to `next` (a black frame for clears). */
-  async transition(next: Frame, effect: Effect): Promise<void> {
-    let from = this.frame;
-    if (this.tint.amount > 0) {
-      // Showing a picture sets its palette: a black (or white) screen is what we transition from.
-      from = this.tint.amount >= 1 ? solid(this.tint.rgb) : { pixels: from.pixels, palette: this.palette(from) };
-      this.tint = { rgb: 0, amount: 0 };
-    }
+  /** The picture on screen as a frame with the palette it is shown with. */
+  private shown(): Frame {
+    if (this.tint.amount >= 1) return { pixels: BLACK.pixels, palette: new Uint8Array(48).fill(this.tint.rgb) };
+    return { pixels: this.frame.pixels, palette: this.palette(this.frame) };
+  }
+
+  /** Shows `next` with a PC-98 transition, from what is on screen. Without an effect nothing changes. */
+  async transition(next: Frame, effect: Effect | undefined): Promise<void> {
+    if (!effect) return;
+    if (this.dim && effect !== 'cut') await this.setDim(false);
+    this.undimNow();
+    const from = this.shown();
+    // Showing a picture sets its palette: tints from palette ops end here.
+    this.tint = { rgb: 0, amount: 0 };
     this.frame = next;
-    const duration = this.fast ? 0 : (DURATION[effect] ?? 800);
-    if (duration === 0) return this.draw();
-    if (effect === 'palette') {
-      // Fade through black: out with the old palette, in with the new.
-      const fromBlack = from.pixels === BLACK.pixels;
-      const toBlack = next.pixels === BLACK.pixels;
-      if (!fromBlack) await this.animate(duration / (toBlack ? 1 : 2), (p) => this.draw(from, scale(this.palette(from), 1 - p)));
-      if (!toBlack) await this.animate(duration / (fromBlack ? 1 : 2), (p) => this.draw(next, scale(this.palette(next), p)));
-      return this.draw();
+    await this.run(effect, 'show', from, next);
+  }
+
+  /**
+   * Clears to black with a PC-98 transition. Without an effect (99) only the
+   * dim lifts. 'fade' fades from the dimmed palette, 'cut' lifts the dim at once.
+   */
+  async clear(effect: Effect | undefined): Promise<void> {
+    if (effect === 'fade') {
+      // Fades from the dimmed palette whether text was on screen or not.
+      this.undimNow();
+      const from = this.shown();
+      this.tint = { rgb: 0, amount: 0 };
+      this.frame = BLACK;
+      return this.run(effect, 'clear', from, BLACK);
     }
-    const map = mapFor(effect)!;
-    // Old and new frames have different palettes: draw both in RGB.
-    const a = rgba(from, this.palette(from));
-    const b = rgba(next, this.palette(next));
-    await this.animate(duration, (p) => {
-      const d = this.image.data;
-      for (let i = 0; i < map.length; i++) {
-        const src = map[i] < p ? b : a;
-        d[i * 4] = src[i * 4];
-        d[i * 4 + 1] = src[i * 4 + 1];
-        d[i * 4 + 2] = src[i * 4 + 2];
-        d[i * 4 + 3] = 255;
-      }
-      this.ctx.putImageData(this.image, 0, 0);
-    });
+    if (effect !== 'cut' && this.dim) await this.setDim(false);
+    this.undimNow();
+    if (!effect || effect === 'dissolve') return this.draw();
+    const from = this.shown();
+    this.tint = { rgb: 0, amount: 0 };
+    this.frame = BLACK;
+    await this.run(effect, 'clear', from, BLACK);
+  }
+
+  /** Cuts to a frame (e.g. what an animation leaves on screen). */
+  setFrame(frame: Frame) {
+    this.undimNow();
+    this.tint = { rgb: 0, amount: 0 };
+    this.frame = frame;
     this.draw();
   }
 
-  clear(effect: Effect) {
-    return this.transition(BLACK, effect);
+  private run(effect: Effect, phase: 'clear' | 'show', from: Frame, to: Frame) {
+    const data = this.data ?? { kcode: [], squash: [] };
+    paint(from, from.palette, this.layers.screen);
+    this.layers.cover.fill(0);
+    const program = transition(effect, phase, { ...data, from, to, random: gameRandom() }, this.layers);
+    return this.steps(program);
+  }
+
+  /**
+   * Runs a vsync-timed program: each step changes the layers and yields how
+   * many vsyncs (56.42 Hz) to hold them. Drawn on animation frames; steps that
+   * fall due together are run together.
+   */
+  private steps(program: Iterator<number>): Promise<void> {
+    return new Promise((resolve) => {
+      let due = performance.now();
+      const tick = (now: number) => {
+        let changed = false;
+        while (this.fast || now >= due) {
+          const r = program.next();
+          if (r.done) {
+            this.present();
+            return resolve();
+          }
+          due += r.value * VSYNC_MS;
+          changed = true;
+        }
+        if (changed) this.present();
+        requestAnimationFrame(tick);
+      };
+      tick(performance.now());
+    });
+  }
+
+  /** Calls `fn` `count` times, `every` vsyncs apart, the first after `every`; stops early when it returns false. */
+  private ticks(count: number, every: number, fn: () => boolean): Promise<void> {
+    const self = this;
+    function* program() {
+      for (let i = 0; i < count; i++) {
+        yield every;
+        if (!fn()) return;
+      }
+    }
+    return new Promise((resolve) => {
+      const it = program();
+      let due = performance.now();
+      const tick = (now: number) => {
+        while (self.fast || now >= due) {
+          const r = it.next();
+          if (r.done) return resolve();
+          due += r.value * VSYNC_MS;
+        }
+        requestAnimationFrame(tick);
+      };
+      tick(performance.now());
+    });
+  }
+
+  /**
+   * Plays a vsync-indexed animation: `render(t, screen)` draws vsync t and
+   * returns false once there is nothing more to show. `stop()` ends it early.
+   */
+  play(render: (t: number, s: Screen) => boolean): { done: Promise<void>; stop: () => void } {
+    const screen = new Screen();
+    let stopped = false;
+    let last = -1;
+    const start = performance.now();
+    const done = new Promise<void>((resolve) => {
+      const tick = (now: number) => {
+        if (stopped) return resolve();
+        const t = Math.floor((now - start) / VSYNC_MS);
+        if (t !== last) {
+          last = t;
+          if (!render(t, screen) || this.fast) return resolve();
+          screen.toRgba(this.image.data);
+          this.ctx.putImageData(this.image, 0, 0);
+        }
+        requestAnimationFrame(tick);
+      };
+      tick(start);
+    });
+    return { done, stop: () => (stopped = true) };
   }
 
   private animate(ms: number, step: (p: number) => void): Promise<void> {
@@ -231,20 +311,4 @@ export class Stage {
   }
 }
 
-function solid(rgb: number): Frame {
-  return rgb === 0 ? BLACK : { pixels: BLACK.pixels, palette: new Uint8Array(48).fill(rgb) };
-}
-
-function rgba(frame: Frame, palette: Uint8Array) {
-  const out = new Uint8ClampedArray(WIDTH * HEIGHT * 4);
-  for (let i = 0; i < frame.pixels.length; i++) {
-    const c = frame.pixels[i] * 3;
-    out[i * 4] = palette[c];
-    out[i * 4 + 1] = palette[c + 1];
-    out[i * 4 + 2] = palette[c + 2];
-  }
-  return out;
-}
-
-const scale = (p: Uint8Array, k: number) => p.map((v) => v * k);
 const mix = (a: Uint8Array, b: Uint8Array, k: number) => a.map((v, i) => v + (b[i] - v) * k);

@@ -20,7 +20,11 @@ test('new game reaches the first choice and saves', { skip, timeout: 300_000 }, 
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`http://localhost:${PORT}/`);
-    await page.click('text=Nueva partida', { timeout: 60_000 });
+    // First launch: the opening plays; a click skips to the title.
+    await page.waitForSelector('.opening', { timeout: 60_000 });
+    await page.waitForTimeout(1500);
+    await page.click('.opening');
+    await page.click('text=Nueva partida', { timeout: 10_000 });
     let presses = 0;
     while (!(await page.$('.choices')) && presses < 2000) {
       await page.keyboard.press('Enter');

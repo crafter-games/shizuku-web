@@ -108,11 +108,6 @@ export function composeScene(visual: Visual, load: (path: string) => Lfg): Frame
   return frame;
 }
 
-/** The palette the PC-98 shows behind text: each 4-bit channel at 2/3, rounded down. */
-export function dimPalette(palette: Uint8Array): Uint8Array {
-  return palette.map((v) => Math.floor(((v >> 4) * 2) / 3) * 0x11);
-}
-
 export function frameToRgba(frame: Frame, palette = frame.palette, out = new Uint8ClampedArray(WIDTH * HEIGHT * 4)) {
   for (let i = 0; i < frame.pixels.length; i++) {
     const c = frame.pixels[i] * 3;

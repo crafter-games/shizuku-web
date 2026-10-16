@@ -1,4 +1,6 @@
-import { GameFiles, decodeLfg, type DiskId, type Frame, WIDTH, HEIGHT } from '@shizuku/engine';
+import {
+  GameFiles, loadRipple, loadTransitionData, type DiskId, type RippleAssets, type TransitionData,
+} from '@shizuku/engine';
 import { getItem, loadDisks, setItem } from './storage.ts';
 
 /** Loads the player's disks from IndexedDB (or, in `pnpm dev`, from the developer's private dump). */
@@ -32,18 +34,17 @@ export async function storedDisks(): Promise<DiskId[]> {
   return ids;
 }
 
-/** Layers full-screen LFGs (e.g. the title: TITLE0 + TITLE) into one frame. */
-export function layered(game: GameFiles, paths: string[]): Frame {
-  const frame: Frame = { pixels: new Uint8Array(WIDTH * HEIGHT), palette: new Uint8Array(48) };
-  for (const [i, path] of paths.entries()) {
-    const img = decodeLfg(game.read(path));
-    if (i === 0) frame.palette.set(img.palette);
-    for (let y = 0; y < img.height; y++) {
-      for (let x = 0; x < img.width; x++) {
-        const c = img.pixels[y * img.width + x];
-        if (c !== img.transparent) frame.pixels[(img.y + y) * WIDTH + img.x + x] = c;
-      }
-    }
-  }
-  return frame;
-}
+const cached = <T>(load: (game: GameFiles) => T) => {
+  const cache = new WeakMap<GameFiles, T>();
+  return (game: GameFiles): T => {
+    let v = cache.get(game);
+    if (v === undefined) cache.set(game, (v = load(game)));
+    return v;
+  };
+};
+
+/** KCODE.SDT's glyphs and MAX_ADV.EXE's tables for the screen transitions. */
+export const transitionData: (game: GameFiles) => TransitionData = cached(loadTransitionData);
+
+/** OP_S0 and OP_S1, for the teardrop. */
+export const rippleAssets: (game: GameFiles) => RippleAssets = cached(loadRipple);

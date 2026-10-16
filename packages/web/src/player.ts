@@ -1,11 +1,12 @@
 // The Host the interpreter talks to: turns script events into what the UI
 // shows (text pages, choices) and waits for the player.
 import {
-  Interpreter, composeScene, emptyVisual, lfgLoader, type GameFiles, type Host, type MessageRef,
+  Interpreter, composeScene, lfgLoader, drawRipple, teardropStep, Screen, type GameFiles, type Host, type MessageRef,
   type SavePoint, type TextSegment, type Visual, type Effect, type MusicCommand, type SoundCommand,
   type PaletteOp, VSYNC_MS,
   tokenizeText,
 } from '@shizuku/engine';
+import { rippleAssets, transitionData } from './game-files.ts';
 import { japanese, spanish } from './translation.ts';
 import type { Stage } from './stage.ts';
 import type { Audio } from './audio.ts';
@@ -37,6 +38,7 @@ export interface BacklogEntry {
 export class Player implements Host {
   readonly interp: Interpreter;
   private readonly load: ReturnType<typeof lfgLoader>;
+  private readonly files: GameFiles;
   state: UiState = { page: [], typed: 0, textVisible: false, waiting: false, choice: null, mode: 'normal', ended: false };
   backlog: BacklogEntry[] = [];
   lastPoint: SavePoint | undefined;
@@ -60,8 +62,10 @@ export class Player implements Host {
     this.shakeTarget = shakeTarget;
     this.settings = settings;
     this.progress = progress;
+    this.files = files;
     this.interp = new Interpreter(files, this);
     this.load = lfgLoader(files);
+    stage.data = transitionData(files);
   }
 
   subscribe(fn: () => void) {
@@ -120,20 +124,21 @@ export class Player implements Host {
     this.lastPoint = point;
   }
 
+  /** Hides the text; the palette stays dimmed until the next transition lifts it, as on the PC-98. */
   hideText() {
     this.set({ textVisible: false, page: [], typed: 0 });
-    this.stage.setDim(false);
   }
 
   private frame(visual: Visual) {
     return composeScene(visual, this.load);
   }
 
-  async clear(effect: Effect) {
+  async clear(effect: Effect | undefined) {
     await this.stage.clear(effect);
   }
 
-  async show(visual: Visual, effect: Effect) {
+  async show(visual: Visual, effect: Effect | undefined) {
+    if (!effect) return;
     this.markSeen(visual);
     await this.stage.transition(this.frame(visual), effect);
   }
@@ -168,7 +173,7 @@ export class Player implements Host {
     if (continues) page[page.length - 1] += (/[　-鿿]$/.test(page.at(-1)!) ? '' : ' ') + text;
     else page.push(text);
     const typedFrom = continues ? page.at(-1)!.length - text.length : 0;
-    this.stage.setDim(true);
+    await this.stage.setDim(true);
     this.set({ page, typed: typedFrom, textVisible: true, waiting: false });
     this.backlog.push({ text, ref: key });
     if (this.backlog.length > 500) this.backlog.shift();
@@ -212,7 +217,7 @@ export class Player implements Host {
     if (this.state.mode === 'skip') this.setMode('normal');
     if (this.lastPoint) this.onChoice?.(this.lastPoint);
     const promptText = this.messageText(prompt);
-    this.stage.setDim(true);
+    await this.stage.setDim(true);
     this.set({
       textVisible: true,
       page: [promptText],
@@ -245,10 +250,28 @@ export class Player implements Host {
     this.stage.ripple(on);
   }
 
-  async teardrop(_variant: number) {
-    // The teardrop animation (OP_S0.LFD) is not decoded yet: a short fade stands in.
-    await this.stage.clear('palette');
-    await this.stage.transition(this.frame(this.interp.visual.bg.no ? this.interp.visual : emptyVisual()), 'palette');
+  /** The drop and its ripples on black (01 03 n); variant 1 leaves the last ripple on screen. */
+  async teardrop(variant: number) {
+    this.hideText();
+    await this.stage.clear('cut');
+    const ripple = rippleAssets(this.files);
+    let last = -1;
+    const anim = this.stage.play((t, s) => {
+      const { step, done } = teardropStep(variant, t);
+      if (step !== last) {
+        // The drop lands on cell 4 with the sound the script loaded (Plnn).
+        if (step === 4) void this.audio.sound({ t: 'play', arg: '0100' });
+        last = step;
+      }
+      if (step >= 0) drawRipple(ripple, step, s);
+      else s.clear();
+      return !done;
+    });
+    await anim.done;
+    if (variant === 0) return this.stage.setFrame({ pixels: new Uint8Array(640 * 400), palette: new Uint8Array(48) });
+    const s = new Screen();
+    drawRipple(ripple, 14, s);
+    this.stage.setFrame(s.toFrame());
   }
 
   wait(ms: number) {
@@ -268,13 +291,12 @@ export class Player implements Host {
       case 'grey': return s.setTint(128, op.amount);
       case 'fade-grey': return s.setTint(128, op.on ? 1 : 0, 16 * 2 * VSYNC_MS);
       case 'dim':
-        // Text already dims the palette behind it (style of opcode 64); nothing extra.
-        return;
+        return s.setDim(op.on);
     }
   }
 
   async ending(_no: number) {
     this.hideText();
-    await this.stage.clear('palette');
+    await this.stage.clear('fade');
   }
 }

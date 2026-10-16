@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Interpreter, type GameFiles, type SavePoint } from '@shizuku/engine';
+import { Interpreter, titleFrame, type GameFiles, type SavePoint } from '@shizuku/engine';
 import { Stage } from '../stage.ts';
 import type { Audio } from '../audio.ts';
-import { layered } from '../game-files.ts';
 import { listSaves, type Progress, type SaveGame, type Settings } from '../storage.ts';
 import { SaveLoad, SettingsPanel } from './Panels.tsx';
 import { Gallery } from './Gallery.tsx';
@@ -10,13 +9,16 @@ import { Gallery } from './Gallery.tsx';
 /** SZ_FM15 plays over the PC-98's opening and title screen. */
 const TITLE_MUSIC = 15;
 
-export function Title({ game, audio, progress, settings, onSettings, onStart }: {
+export function Title({ game, audio, progress, settings, instant, onSettings, onStart, onOpening }: {
   game: GameFiles;
   audio: Audio;
   progress: Progress;
   settings: Settings;
+  /** Coming from the end of the opening, which already shows the title. */
+  instant?: boolean;
   onSettings: (s: Settings) => void;
   onStart: (p: SavePoint) => void;
+  onOpening: () => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [panel, setPanel] = useState<'load' | 'settings' | 'gallery' | null>(null);
@@ -24,7 +26,7 @@ export function Title({ game, audio, progress, settings, onSettings, onStart }: 
 
   useEffect(() => {
     const stage = new Stage(canvas.current!);
-    void stage.transition(layered(game, ['TITLE0.LFG', 'TITLE.LFG']), 'palette');
+    void stage.transition(titleFrame(game), instant ? 'cut' : 'fade');
     audio.play(TITLE_MUSIC, 1); // the opening theme, once, as on the PC-98
     void listSaves().then((saves) => {
       const newest = [...saves.values()].sort((a, b) => b.date - a.date)[0];
@@ -37,6 +39,7 @@ export function Title({ game, audio, progress, settings, onSettings, onStart }: 
     ['Continuar', () => latest && onStart(latest.point), !latest],
     ['Cargar partida', () => setPanel('load'), !latest],
     ['Galería', () => setPanel('gallery')],
+    ['Ver la introducción', onOpening],
     ['Opciones', () => setPanel('settings')],
   ];
 

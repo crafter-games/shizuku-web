@@ -11,6 +11,8 @@ export class Audio {
   private ctx: AudioContext | undefined;
   /** The song playing (or that should be, before audio is unlocked). */
   current: number | null = null;
+  /** Passes before the current song stops (undefined: it loops). */
+  private loops: number | undefined;
   private next: number | null = null;
   private fadeDone: Promise<void> = Promise.resolve();
   private musicVolume = 0.8;
@@ -27,6 +29,8 @@ export class Audio {
     };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
+    // A click earlier on this page (e.g. importing the disks) already allows it.
+    if (navigator.userActivation?.hasBeenActive) unlock();
   }
 
   private start(): Promise<PmdPlayer> {
@@ -34,7 +38,7 @@ export class Audio {
       this.ctx = new AudioContext();
       const p = await PmdPlayer.create(this.ctx, { workletUrl });
       p.pmd.volume = this.musicVolume;
-      if (this.current !== null) p.play(this.song(this.current));
+      if (this.current !== null) p.play(this.song(this.current), { loops: this.loops });
       return p;
     })();
     return this.player;
@@ -55,6 +59,7 @@ export class Audio {
   play(no: number, loops?: number) {
     if (this.current === no && !this.fading) return;
     this.current = no;
+    this.loops = loops;
     this.fading = false;
     void this.player?.then((p) => p.play(this.song(no), { loops }));
   }

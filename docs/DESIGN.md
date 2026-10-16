@@ -78,8 +78,8 @@ Five PC-98 2HD floppies, FAT12 (1024-byte sectors, 8 per track, 77 cylinders, 2 
 | `60` | white at once (state 2) |
 | `61 n` | fade to white, n−1 per step |
 | `62 n` | fade in from white, n−1 per step |
-| `63` | from dimmed (10/15) back to normal |
-| `64` | from normal or white, dim to 10/15 (6 steps × 2 vsyncs) |
+| `63` | from dimmed back to normal (5 steps × 2 vsyncs) |
+| `64` | dim colours 0–14 to 10/15, colour 15 kept: step k is `floor(c*(15-k)/15)`, k = 1..5, 2 vsyncs each |
 | `65` | from black, fade in to the palette dimmed to 10/15 except colour 15 (3 per step) |
 | `66` | from the dimmed palette, fade to black |
 | `67 n` | mix n/15 of grey into the palette, at once |
@@ -89,8 +89,13 @@ Five PC-98 2HD floppies, FAT12 (1024-byte sectors, 8 per track, 77 cylinders, 2 
 | `70` | stop music |
 | `73` | fade music out and wait until it ends |
 | `71 n` / `72 n` | PMD FM / SSG effect n (unused) |
-| `01 03 n` | teardrop: calls one of two routines by n, in the module that also loads OP_S0/OP_S1 (the same ripple as the opening, probably; not yet observed) |
+| `01 03 n` | teardrop: the opening's drop and ripples (OP_S0/OP_S1) on black, with the loaded PCM effect when the drop lands (cell 4). n = 0: the whole 19-step sequence twice. n = 1: once, the last steps slowing (7, 9, 11, 13 vsyncs), stopping on step 14, which stays on screen as the background (the scripts then dissolve VIS25 over it) |
+| `14 n` | fill the screen with colour n at once (scripts: 0) |
+| `15 n` | clear to black with transition n |
+| `38 n` | show the background with transition n |
+
+**Transitions.** Op `15 n` and the clear digits of inline `B`/`E`/`V`/`H`/`S` run one of twelve clear routines (0–11, image 0xB1C2); op `38 n` and the display digits one of thirteen show routines (0–12, image 0xC94E); 99 skips the step. Before a clear other than 0 and 11 the dim lifts. Most draw a mask in the text layer: 16x16 cells, solid or a KCODE.SDT glyph, black where lit when clearing, reversed when showing. Each is reimplemented in `packages/engine/src/effects.ts` (table there) and matches the emulator frame for frame, except the CPU-bound split row of the dissolve: fade (palette, 3 vsyncs a step), spiral, pseudo-random cells (the game's 16-bit LFSR), KCODE diamonds, diamond wipe, dither, a 16-line interleaved line wipe, bar wipe, dither wipe, a vertical squash through 16 line masks in the EXE's data, KCODE bars, cut, and (show only) the ordered 4x4 dissolve of the title. Character changes (`C`, `D`, `A`, ops 22/24) are drawn at once after the dim lifts.
 
 XLVNS gives `61` three bytes; the PC-98 handler reads one, and the scripts' disassembly agrees with OP_LENGTH. The text command `F` is a white flash: fade to white, hold 30 vsyncs, fade back to the dimmed palette.
 
-**Still unknown.** How the opening's letterbox bands are drawn. Which routine `01 03` runs and what it looks like. The FM effect sequence format in detail. The `sizuku_effect` index → effect mapping of the Windows version, which does not apply here.
+**Still unknown.** How the opening's letterbox bands are drawn. The FM effect sequence format in detail. What op `16` (H scenes) does on screen.

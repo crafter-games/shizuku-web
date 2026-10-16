@@ -3,7 +3,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { GameFiles, decodeVd, VD_SAMPLE_RATE, decodeLfd, opS0Cell, decodeKcode, KCODE_GROUPS, decodeKcd, parseEfc } from '../src/index.ts';
+import {
+  GameFiles, decodeVd, VD_SAMPLE_RATE, decodeLfd, opS0Cell, decodeKcode, KCODE_GROUPS, decodeKcd, parseEfc,
+  loadOpening, renderOpening, drawRipple, titleFrame, Screen, OPENING_END, loadTransitionData, squashMasks,
+} from '../src/index.ts';
 
 const dir = process.env.SHIZUKU_DISKS ?? new URL('../../../../pc98/fixtures/private/shizuku/', import.meta.url).pathname;
 const present = existsSync(`${dir}/sizuku_a.hdm`);
@@ -47,4 +50,24 @@ test('media formats decode', { skip: !present && 'no private Shizuku dump' }, ()
 
   const efc = parseEfc(game.read('SZEF.EFC'));
   assert.ok(efc.effects.filter((e) => e.length > 1).length >= 10);
+});
+
+test('opening and transition data', { skip: !present && 'no private Shizuku dump' }, () => {
+  const game = load();
+  const op = loadOpening(game);
+  const s = new Screen();
+  // The opening ends on the title screen the menu shows.
+  renderOpening(op, OPENING_END, s);
+  const title = titleFrame(game);
+  assert.deepEqual(s.pixels, title.pixels);
+  assert.deepEqual(s.palette.map((v) => v * 0x11), title.palette);
+  // Each ripple step lights something, in #31B.
+  for (let k = 0; k < 19; k++) {
+    drawRipple(op, k, s);
+    assert.ok(s.pixels.some((v, i) => v === 1 && !s.mask[i]), `ripple step ${k}`);
+  }
+  const data = loadTransitionData(game);
+  assert.equal(data.kcode.length, 162);
+  // The squash masks come from MAX_ADV.EXE, not the evenly spread fallback.
+  assert.notDeepEqual(data.squash, squashMasks(new Uint8Array(64)));
 });

@@ -1,20 +1,7 @@
 import type { GameFiles } from './game.ts';
 import { decodeOp, parseScenario, segmentMessage, tokenizeText, type Scenario, type Segment } from './scn.ts';
 import { emptyVisual, type Visual } from './scene.ts';
-
-/**
- * Screen transitions. Numbers index the game's effect table (from XLVNS
- * sizuku.c); scripts also use 99 for a plain cut.
- */
-export type Effect =
-  | 'palette' | 'spiral' | 'slant-tiles' | 'diamonds' | 'diamond-wipe' | 'mask' | 'wipe-down'
-  | 'wipe-right' | 'mask-wipe-right' | 'vertical-close' | 'slide-right' | 'cut';
-
-const EFFECTS: Effect[] = [
-  'palette', 'spiral', 'slant-tiles', 'diamonds', 'diamond-wipe', 'mask', 'wipe-down',
-  'wipe-right', 'mask-wipe-right', 'vertical-close', 'slide-right', 'cut', 'mask',
-];
-export const effectFromTable = (n: number): Effect => EFFECTS[n] ?? 'cut';
+import { effectFromNumber, type Effect } from './effects.ts';
 
 /** Where in the story we are; enough to resume. Saved games store this. */
 export interface SavePoint {
@@ -75,10 +62,10 @@ export interface Host {
   /** Called whenever a save would be allowed to resume from here. */
   savePoint(point: SavePoint): void;
   hideText(): void;
-  /** Transition to black. */
-  clear(effect: Effect): Promise<void>;
-  /** Transition from what is on screen to `visual`. */
-  show(visual: Visual, effect: Effect): Promise<void>;
+  /** Transition to black; with no effect (99) only the text dim is lifted. */
+  clear(effect: Effect | undefined): Promise<void>;
+  /** Transition from what is on screen to `visual`; with no effect (99) the screen stays as it is. */
+  show(visual: Visual, effect: Effect | undefined): Promise<void>;
   text(segment: TextSegment): Promise<void>;
   choose(prompt: MessageRef, options: MessageRef[]): Promise<number>;
   music(cmd: MusicCommand): void | Promise<void>;
@@ -174,7 +161,7 @@ export class Interpreter {
     }
     if (this.music !== null) await this.host.music({ t: 'play', no: this.music });
     if (start.visual.bg.no !== 0 || Object.values(start.visual.chars).some((c) => c !== null)) {
-      await this.host.show(this.visual, 'wipe-down');
+      await this.host.show(this.visual, 'fade');
     }
     let skip = start.segment;
     while (!this.stopped) {
@@ -205,10 +192,10 @@ export class Interpreter {
             h.ripple(true);
             await this.message(a[1], at, skip);
             h.ripple(false);
-            await h.clear('palette');
+            await h.clear('fade');
             break;
           case 0x02: // from black into the ripple, with text
-            await h.show(this.visual, 'palette');
+            await h.show(this.visual, 'fade');
             h.ripple(true);
             await this.message(a[1], at, skip);
             h.ripple(false);
@@ -235,9 +222,13 @@ export class Interpreter {
       case 0x0a:
         this.setBackground('bg', a[0]);
         break;
-      case 0x14:
+      case 0x14: // fill the screen with colour n: the scripts only use 0 (black)
         h.hideText();
-        await h.clear(effectFromTable(a[0]));
+        await h.clear('cut');
+        break;
+      case 0x15:
+        h.hideText();
+        await h.clear(effectFromNumber(a[0]));
         break;
       case 0x16:
         h.hideText();
@@ -248,10 +239,10 @@ export class Interpreter {
       case 0x24:
         h.hideText();
         this.setCharacter(op.op === 0x24 ? 'c' : String.fromCharCode(a[1]), a[0]);
-        await h.show(this.visual, 'mask');
+        await h.show(this.visual, 'cut'); // drawn at once once the dim lifts
         break;
       case 0x38:
-        await h.show(this.visual, effectFromTable(a[0]));
+        await h.show(this.visual, effectFromNumber(a[0]));
         break;
       case 0x3d:
         if (this.flags[flagSlot(a[0])] === a[1]) this.pc += a[2];
@@ -358,20 +349,20 @@ export class Interpreter {
         h.hideText();
         this.visual.chars[raw[1].toLowerCase() as 'l'] = null;
         this.setCharacter(raw[1], hex(raw.slice(2, 4)));
-        await h.show(this.visual, 'mask');
+        await h.show(this.visual, 'cut'); // drawn at once once the dim lifts
         break;
       case 'D':
         h.hideText();
         this.visual.chars = { l: null, c: null, r: null };
         this.setCharacter(raw[1], hex(raw.slice(2, 4)));
-        await h.show(this.visual, 'mask');
+        await h.show(this.visual, 'cut'); // drawn at once once the dim lifts
         break;
       case 'A':
       case 'a':
         h.hideText();
         this.visual.chars = { l: null, c: null, r: null };
         for (let i = 1; i < 10; i += 3) this.setCharacter(raw[i], hex(raw.slice(i + 1, i + 3)));
-        await h.show(this.visual, 'mask');
+        await h.show(this.visual, 'cut'); // drawn at once once the dim lifts
         break;
       case 'B':
       case 'E':
@@ -424,8 +415,7 @@ export class Interpreter {
     }
   }
 
-  private textEffect(digits: string): Effect {
-    const n = dec(digits);
-    return n === 99 ? 'cut' : effectFromTable(n);
+  private textEffect(digits: string): Effect | undefined {
+    return effectFromNumber(dec(digits));
   }
 }

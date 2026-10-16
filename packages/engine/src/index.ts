@@ -11,3 +11,5 @@ export * from './lfd.ts';
 export * from './kcode.ts';
 export * from './kcd.ts';
 export * from './efc.ts';
+export * from './opening.ts';
+export * from './effects.ts';
